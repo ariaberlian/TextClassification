@@ -134,7 +134,7 @@ def main():
     import sys
     
     model_type = 'tfidf_lr'  # Default
-    max_samples = 1000      # Default
+    max_samples = None      # Default
     
     # Simple argument parsing
     if '--model' in sys.argv:
