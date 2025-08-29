@@ -4,6 +4,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import MultinomialNB
+from sklearn.neural_network import MLPClassifier
 from typing import Union, Optional, Dict, Any
 import joblib
 import os
@@ -206,6 +207,69 @@ class NaiveBayesClassifier(BaseClassifier):
         return self.model.predict_proba(X)
 
 
+class NeuralNetworkClassifier(BaseClassifier):
+    """Neural Network (MLP) classifier wrapper"""
+    
+    def __init__(self, hidden_layer_sizes: tuple = (100,), activation: str = 'relu',
+                 solver: str = 'adam', alpha: float = 0.0001, batch_size: str = 'auto',
+                 learning_rate: str = 'constant', learning_rate_init: float = 0.001,
+                 max_iter: int = 200, random_state: int = 42, early_stopping: bool = False,
+                 validation_fraction: float = 0.1, **kwargs):
+        super().__init__()
+        self.hidden_layer_sizes = hidden_layer_sizes
+        self.activation = activation
+        self.solver = solver
+        self.alpha = alpha
+        self.batch_size = batch_size
+        self.learning_rate = learning_rate
+        self.learning_rate_init = learning_rate_init
+        self.max_iter = max_iter
+        self.random_state = random_state
+        self.early_stopping = early_stopping
+        self.validation_fraction = validation_fraction
+        self.kwargs = kwargs
+        
+        self.model = MLPClassifier(
+            hidden_layer_sizes=hidden_layer_sizes,
+            activation=activation,
+            solver=solver,
+            alpha=alpha,
+            batch_size=batch_size,
+            learning_rate=learning_rate,
+            learning_rate_init=learning_rate_init,
+            max_iter=max_iter,
+            random_state=random_state,
+            early_stopping=early_stopping,
+            validation_fraction=validation_fraction,
+            **kwargs
+        )
+    
+    def fit(self, X: np.ndarray, y: np.ndarray) -> 'NeuralNetworkClassifier':
+        """Fit the neural network model"""
+        self.model.fit(X, y)
+        self.is_fitted = True
+        self.classes_ = self.model.classes_
+        return self
+    
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """Predict class labels"""
+        if not self.is_fitted:
+            raise ValueError("Model must be fitted before prediction")
+        return self.model.predict(X)
+    
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Predict class probabilities"""
+        if not self.is_fitted:
+            raise ValueError("Model must be fitted before prediction")
+        return self.model.predict_proba(X)
+    
+    def get_training_loss(self) -> np.ndarray:
+        """Get training loss curve"""
+        if not self.is_fitted:
+            raise ValueError("Model must be fitted first")
+        return self.model.loss_curve_
+
+
 class DummyClassifier(BaseClassifier):
     """Dummy classifier for fine-tuning approaches that don't need separate classifiers"""
     
@@ -244,6 +308,8 @@ class ClassifierFactory:
             return RandomForestClassifier(**kwargs)
         elif classifier_type == "naive_bayes" or classifier_type == "nb":
             return NaiveBayesClassifier(**kwargs)
+        elif classifier_type == "neural_network" or classifier_type == "mlp" or classifier_type == "nn":
+            return NeuralNetworkClassifier(**kwargs)
         elif classifier_type == "dummy":
             return DummyClassifier(**kwargs)
         else:
@@ -256,5 +322,6 @@ class ClassifierFactory:
             "logistic_regression": "Logistic Regression (also 'lr')",
             "svm": "Support Vector Machine",
             "random_forest": "Random Forest (also 'rf')",
-            "naive_bayes": "Naive Bayes (also 'nb')"
+            "naive_bayes": "Naive Bayes (also 'nb')",
+            "neural_network": "Neural Network/Multi-Layer Perceptron (also 'mlp', 'nn')"
         }

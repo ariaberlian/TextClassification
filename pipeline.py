@@ -122,7 +122,7 @@ class TextClassificationPipeline:
             X_train_vectors = None  # Not needed for fine-tuning approach
             
             if verbose:
-                print(f"      ✓ IndoBERT fine-tuned in {vectorizer_time:.2f}s")
+                print(f"      [OK] IndoBERT fine-tuned in {vectorizer_time:.2f}s")
         else:
             # Traditional approach: vectorizer + classifier
             if verbose:
@@ -131,8 +131,8 @@ class TextClassificationPipeline:
             X_train_vectors = self.vectorizer.fit_transform(X_train)
             vectorizer_time = time.time() - vectorizer_start
             if verbose:
-                print(f"      ✓ Vectorizer fitted in {vectorizer_time:.2f}s")
-                print(f"      ✓ Feature dimensions: {X_train_vectors.shape}")
+                print(f"      [OK] Vectorizer fitted in {vectorizer_time:.2f}s")
+                print(f"      [OK] Feature dimensions: {X_train_vectors.shape}")
             
             # Classifier training with progress
             if verbose:
@@ -154,7 +154,7 @@ class TextClassificationPipeline:
             self.classifier.fit(X_train_vectors, y_train)
             classifier_time = time.time() - classifier_start
             if verbose:
-                print(f"      ✓ Classifier fitted in {classifier_time:.2f}s")
+                print(f"      [OK] Classifier fitted in {classifier_time:.2f}s")
         
         self.training_time = time.time() - start_time
         self.is_fitted = True
@@ -169,7 +169,7 @@ class TextClassificationPipeline:
         
         if verbose:
             print("=" * 50)
-            print(f"✅ Pipeline training completed!")
+            print(f"[DONE] Pipeline training completed!")
             print(f"   Total time: {self.training_time:.2f}s")
             print(f"   Vectorizer: {vectorizer_time:.2f}s ({vectorizer_time/self.training_time*100:.1f}%)")
             print(f"   Classifier: {classifier_time:.2f}s ({classifier_time/self.training_time*100:.1f}%)")
