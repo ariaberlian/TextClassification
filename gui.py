@@ -153,6 +153,20 @@ if saved_models:
                 model_names.append(f"TF-IDF + Logistic Regression ({filename[:50]}...)")
             elif 'tfidf' in filename and 'svm' in filename:
                 model_names.append(f"TF-IDF + SVM ({filename[:50]}...)")
+            elif 'tfidf' in filename and 'naive_bayes' in filename:
+                model_names.append(f"TF-IDF + Naive Bayes ({filename[:50]}...)")
+            elif 'tfidf' in filename and 'neural_network' in filename:
+                model_names.append(f"TF-IDF + Neural Network ({filename[:50]}...)")
+            elif 'indobert' in filename and 'finetune' in filename:
+                model_names.append(f"IndoBERT Fine-tuned ({filename[:50]}...)")
+            elif 'indobert' in filename and 'logistic' in filename:
+                model_names.append(f"IndoBERT + Logistic Regression ({filename[:50]}...)")
+            elif 'indobert' in filename and 'svm' in filename:
+                model_names.append(f"IndoBERT + SVM ({filename[:50]}...)")
+            elif 'indobert' in filename and 'naive_bayes' in filename:
+                model_names.append(f"IndoBERT + Naive Bayes ({filename[:50]}...)")
+            elif 'indobert' in filename and 'neural_network' in filename:
+                model_names.append(f"IndoBERT + Neural Network ({filename[:50]}...)")
             elif 'indobert' in filename:
                 model_names.append(f"IndoBERT ({filename[:50]}...)")
             else:

@@ -76,7 +76,7 @@ class TextClassificationPipeline:
         data_hash = hashlib.md5(str(X_train[:100] + y_train[:100]).encode()).hexdigest()[:8]  # 8 chars for data
         
         # Create short, descriptive filename
-        model_filename = f"{self.vectorizer_type}_{self.classifier_type}_{config_hash}_{data_hash}.pkl"
+        model_filename = f"model_{self.vectorizer_type}_{self.classifier_type}_{config_hash[:8]}.pkl"
         model_path = os.path.join(model_dir, model_filename)
         
         # Try to load existing model if not forcing retrain
