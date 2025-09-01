@@ -44,6 +44,8 @@ class TextClassificationPipeline:
         # Training state
         self.is_fitted = False
         self.training_time = None
+        self.vectorizer_time = None
+        self.classifier_time = None
         self.classes_ = None
     
     def fit(self, X_train: List[str], y_train: List[Union[str, int]], 
@@ -90,10 +92,15 @@ class TextClassificationPipeline:
                 self.vectorizer = loaded_pipeline.vectorizer
                 self.classifier = loaded_pipeline.classifier
                 self.training_time = loaded_pipeline.training_time
+                self.vectorizer_time = getattr(loaded_pipeline, 'vectorizer_time', None)
+                self.classifier_time = getattr(loaded_pipeline, 'classifier_time', None)
                 self.is_fitted = loaded_pipeline.is_fitted
                 self.classes_ = loaded_pipeline.classes_
                 
                 print(f"Model loaded successfully! (Original training time: {self.training_time:.2f}s)")
+                if self.vectorizer_time is not None and self.classifier_time is not None:
+                    print(f"   Original vectorizer time: {self.vectorizer_time:.2f}s")
+                    print(f"   Original classifier time: {self.classifier_time:.2f}s")
                 return self
                 
             except Exception as e:
@@ -117,6 +124,10 @@ class TextClassificationPipeline:
             self.vectorizer.fit(X_train, y_train)
             vectorizer_time = time.time() - vectorizer_start
             classifier_time = 0  # No separate classifier training
+            
+            # Store timing information
+            self.vectorizer_time = vectorizer_time
+            self.classifier_time = classifier_time
             
             # The fine-tuned model handles both vectorization and classification
             X_train_vectors = None  # Not needed for fine-tuning approach
@@ -155,6 +166,10 @@ class TextClassificationPipeline:
             classifier_time = time.time() - classifier_start
             if verbose:
                 print(f"      [OK] Classifier fitted in {classifier_time:.2f}s")
+            
+            # Store timing information
+            self.vectorizer_time = vectorizer_time
+            self.classifier_time = classifier_time
         
         self.training_time = time.time() - start_time
         self.is_fitted = True

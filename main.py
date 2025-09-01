@@ -348,6 +348,12 @@ def run_classification_pipeline(args):
     print(f"Precision (Weighted): {results['precision_weighted']:.2f}%")
     print(f"Recall (Weighted): {results['recall_weighted']:.2f}%")
     print(f"Training Time: {results['training_time']:.1f} seconds")
+    
+    # Display vectorizer and classifier timing breakdown if available
+    if hasattr(pipeline, 'vectorizer_time') and hasattr(pipeline, 'classifier_time'):
+        print(f"  - Vectorizer Time: {pipeline.vectorizer_time:.1f} seconds")
+        print(f"  - Classifier Time: {pipeline.classifier_time:.1f} seconds")
+    
     print(f"Prediction Time: {results['prediction_time']:.3f} seconds")
     
     # Test with sample texts
@@ -387,6 +393,7 @@ def main():
     
     # Tips for users
     print("\n[TIPS] Optimization tips:")
+    print("- Models are automatically saved and reused (unless --force-retrain is used)")
     print("- Use --force-retrain to retrain existing models")
     print("- Adjust --tfidf-max-features for TF-IDF models")
     print("- Try different --bert-pooling strategies for IndoBERT")
