@@ -75,7 +75,7 @@ Examples:
     )
     
     # Model selection
-    parser.add_argument('--model', choices=['tfidf_lr', 'tfidf_svm', 'tfidf_rf', 'tfidf_nb', 'tfidf_nn',
+    parser.add_argument('--model', choices=['tfidf_lr', 'tfidf_svm', 'tfidf_nb', 'tfidf_nn',
                                            'indobert_frozen', 'indobert_finetune', 'indobert_nn'], 
                        default='tfidf_lr', help='Model type to use')
     
@@ -123,12 +123,6 @@ Examples:
                           default='rbf', help='SVM kernel type')
     svm_group.add_argument('--svm-gamma', choices=['scale', 'auto'], default='scale', help='Kernel coefficient')
     
-    # Random Forest parameters
-    rf_group = parser.add_argument_group('Random Forest Parameters')
-    rf_group.add_argument('--rf-n-estimators', type=int, default=100, help='Number of trees')
-    rf_group.add_argument('--rf-max-depth', type=int, help='Maximum depth of trees')
-    rf_group.add_argument('--rf-min-samples-split', type=int, default=2, help='Min samples to split node')
-    rf_group.add_argument('--rf-min-samples-leaf', type=int, default=1, help='Min samples in leaf node')
     
     # Naive Bayes parameters
     nb_group = parser.add_argument_group('Naive Bayes Parameters')
@@ -172,13 +166,12 @@ def build_pipeline_from_args(args) -> TextClassificationPipeline:
     # Parse model type
     if args.model.startswith('tfidf_'):
         vectorizer_type = "tfidf"
-        classifier_type = args.model.split('_')[1]  # lr, svm, rf, nb
+        classifier_type = args.model.split('_')[1]  # lr, svm, nb
         
         # Map abbreviated classifier names
         classifier_map = {
             'lr': 'logistic_regression',
-            'svm': 'svm', 
-            'rf': 'random_forest',
+            'svm': 'svm',
             'nb': 'naive_bayes',
             'nn': 'neural_network'
         }
@@ -245,13 +238,6 @@ def build_pipeline_from_args(args) -> TextClassificationPipeline:
             'probability': True  # Enable probability estimation
         }
     
-    elif classifier_type == "random_forest":
-        classifier_params = {
-            'n_estimators': args.rf_n_estimators,
-            'max_depth': args.rf_max_depth,
-            'min_samples_split': args.rf_min_samples_split,
-            'min_samples_leaf': args.rf_min_samples_leaf
-        }
     
     elif classifier_type == "naive_bayes":
         classifier_params = {

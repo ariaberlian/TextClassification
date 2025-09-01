@@ -24,7 +24,7 @@ class TextClassificationPipeline:
         
         Args:
             vectorizer_type: Type of vectorizer ('tfidf' or 'indobert')
-            classifier_type: Type of classifier ('logistic_regression', 'svm', 'random_forest', 'naive_bayes')
+            classifier_type: Type of classifier ('logistic_regression', 'svm', 'naive_bayes')
             vectorizer_params: Parameters for the vectorizer
             classifier_params: Parameters for the classifier
         """
@@ -69,17 +69,14 @@ class TextClassificationPipeline:
         # Create model directory if it doesn't exist
         os.makedirs(model_dir, exist_ok=True)
         
-        # Generate unique model filename based on configuration and data
+        # Generate unique model filename based on configuration and data hash
+        # Create a hash of the entire configuration to avoid long filenames
         config_str = f"{self.vectorizer_type}_{self.classifier_type}_{str(self.vectorizer_params)}_{str(self.classifier_params)}"
-        data_hash = hashlib.md5(str(X_train[:100] + y_train[:100]).encode()).hexdigest()[:8]  # Hash first 100 samples
+        config_hash = hashlib.md5(config_str.encode()).hexdigest()[:12]  # 12 chars for config
+        data_hash = hashlib.md5(str(X_train[:100] + y_train[:100]).encode()).hexdigest()[:8]  # 8 chars for data
         
-        # Clean filename by removing/replacing invalid characters
-        model_filename = f"pipeline_{config_str}_{data_hash}.pkl"
-        # Replace problematic characters for Windows filenames
-        invalid_chars = ['<', '>', ':', '"', '|', '?', '*', '/', '\\', "'"]
-        for char in invalid_chars:
-            model_filename = model_filename.replace(char, '-')
-        model_filename = model_filename.replace(' ', '').replace('{', '').replace('}', '')
+        # Create short, descriptive filename
+        model_filename = f"{self.vectorizer_type}_{self.classifier_type}_{config_hash}_{data_hash}.pkl"
         model_path = os.path.join(model_dir, model_filename)
         
         # Try to load existing model if not forcing retrain
@@ -443,13 +440,6 @@ def create_preset_pipelines() -> List[TextClassificationPipeline]:
         classifier_params={'C': 1.0, 'kernel': 'linear'}
     ))
     
-    # TF-IDF + Random Forest
-    pipelines.append(TextClassificationPipeline(
-        vectorizer_type="tfidf",
-        classifier_type="random_forest",
-        vectorizer_params={'max_features': 8000, 'ngram_range': (1, 2)},
-        classifier_params={'n_estimators': 100, 'max_depth': 10}
-    ))
     
     # IndoBERT + Logistic Regression
     pipelines.append(TextClassificationPipeline(

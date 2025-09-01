@@ -6,7 +6,7 @@ A flexible, modular text classification system for Indonesian sentiment analysis
 
 🔧 **Modular Architecture**
 - Switchable vectorizers (TF-IDF, IndoBERT)
-- Multiple classifiers (Logistic Regression, SVM, Random Forest, Naive Bayes)
+- Multiple classifiers (Logistic Regression, SVM, Naive Bayes)
 - Consistent API across all components
 
 🇮🇩 **Indonesian Language Support**
@@ -63,7 +63,6 @@ Open `text_classification_demo.ipynb` for a complete interactive tutorial with:
 
 - **LogisticRegressionClassifier**: Linear classification
 - **SVMClassifier**: Support Vector Machine
-- **RandomForestClassifier**: Ensemble method
 - **NaiveBayesClassifier**: Probabilistic classifier
 
 ### Pipeline (`pipeline.py`)
@@ -151,7 +150,6 @@ sample_loader = DatasetFactory.create_loader("sample")
 ### Classifiers
 - `logistic_regression` (or `lr`): Logistic Regression
 - `svm`: Support Vector Machine
-- `random_forest` (or `rf`): Random Forest
 - `naive_bayes` (or `nb`): Naive Bayes
 
 ## Configuration Options
@@ -182,9 +180,6 @@ classifier_params = {'C': 1.0, 'max_iter': 1000}
 # SVM
 classifier_params = {'C': 1.0, 'kernel': 'linear'}
 
-# Random Forest
-classifier_params = {'n_estimators': 100, 'max_depth': 10}
-
 # Naive Bayes
 classifier_params = {'alpha': 1.0}
 ```
@@ -194,7 +189,7 @@ classifier_params = {'alpha': 1.0}
 1. **For quick experiments**: Use TF-IDF with smaller feature counts
 2. **For best accuracy**: Try IndoBERT (requires GPU for reasonable speed)
 3. **For interpretability**: Use Logistic Regression or Naive Bayes
-4. **For robust performance**: Try Random Forest or SVM
+4. **For robust performance**: Try SVM
 
 ## File Structure
 

@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.neural_network import MLPClassifier
 from typing import Union, Optional, Dict, Any
@@ -133,49 +132,6 @@ class SVMClassifier(BaseClassifier):
         return self.model.predict_proba(X)
 
 
-class RandomForestClassifier(BaseClassifier):
-    """Random Forest classifier wrapper"""
-    
-    def __init__(self, n_estimators: int = 100, max_depth: Optional[int] = None,
-                 random_state: int = 42, **kwargs):
-        super().__init__()
-        self.n_estimators = n_estimators
-        self.max_depth = max_depth
-        self.random_state = random_state
-        self.kwargs = kwargs
-        
-        self.model = RandomForestClassifier(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            random_state=random_state,
-            **kwargs
-        )
-    
-    def fit(self, X: np.ndarray, y: np.ndarray) -> 'RandomForestClassifier':
-        """Fit the Random Forest model"""
-        self.model.fit(X, y)
-        self.is_fitted = True
-        self.classes_ = self.model.classes_
-        return self
-    
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """Predict class labels"""
-        if not self.is_fitted:
-            raise ValueError("Model must be fitted before prediction")
-        return self.model.predict(X)
-    
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """Predict class probabilities"""
-        if not self.is_fitted:
-            raise ValueError("Model must be fitted before prediction")
-        return self.model.predict_proba(X)
-    
-    def get_feature_importance(self) -> np.ndarray:
-        """Get feature importance scores"""
-        if not self.is_fitted:
-            raise ValueError("Model must be fitted first")
-        return self.model.feature_importances_
-
 
 class NaiveBayesClassifier(BaseClassifier):
     """Naive Bayes classifier wrapper"""
@@ -304,8 +260,6 @@ class ClassifierFactory:
             return LogisticRegressionClassifier(**kwargs)
         elif classifier_type == "svm":
             return SVMClassifier(**kwargs)
-        elif classifier_type == "random_forest" or classifier_type == "rf":
-            return RandomForestClassifier(**kwargs)
         elif classifier_type == "naive_bayes" or classifier_type == "nb":
             return NaiveBayesClassifier(**kwargs)
         elif classifier_type == "neural_network" or classifier_type == "mlp" or classifier_type == "nn":
@@ -321,7 +275,6 @@ class ClassifierFactory:
         return {
             "logistic_regression": "Logistic Regression (also 'lr')",
             "svm": "Support Vector Machine",
-            "random_forest": "Random Forest (also 'rf')",
             "naive_bayes": "Naive Bayes (also 'nb')",
             "neural_network": "Neural Network/Multi-Layer Perceptron (also 'mlp', 'nn')"
         }
