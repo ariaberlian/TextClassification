@@ -173,9 +173,71 @@ if saved_models:
             else:
                 model_names.append(f"Model ({filename[:50]}...)")
         else:
-            # Directory (likely HuggingFace model)
+            # Directory (HuggingFace model) - detect type from directory name and contents
             dirname = os.path.basename(model_path)
-            model_names.append(f"HuggingFace Model ({dirname})")
+            
+            # Check if it's a unified format model (has both HuggingFace files and classifier.pkl)
+            has_classifier = os.path.exists(os.path.join(model_path, 'classifier.pkl'))
+            has_metadata = os.path.exists(os.path.join(model_path, 'pipeline_metadata.json'))
+            has_vectorizer_config = os.path.exists(os.path.join(model_path, 'vectorizer_config.json'))
+            
+            if has_classifier and has_metadata:
+                # New unified format - read metadata to get exact model type
+                try:
+                    import json
+                    metadata_path = os.path.join(model_path, 'pipeline_metadata.json')
+                    with open(metadata_path, 'r') as f:
+                        metadata = json.load(f)
+                    
+                    vectorizer_type = metadata.get('vectorizer_type', 'unknown')
+                    classifier_type = metadata.get('classifier_type', 'unknown')
+                    
+                    # Create descriptive name based on actual configuration
+                    if vectorizer_type == 'indobert':
+                        if classifier_type == 'logistic_regression':
+                            model_names.append(f"IndoBERT + Logistic Regression [Unified] ({dirname[:30]}...)")
+                        elif classifier_type == 'neural_network':
+                            model_names.append(f"IndoBERT + Neural Network [Unified] ({dirname[:30]}...)")
+                        elif classifier_type == 'svm':
+                            model_names.append(f"IndoBERT + SVM [Unified] ({dirname[:30]}...)")
+                        elif classifier_type == 'naive_bayes':
+                            model_names.append(f"IndoBERT + Naive Bayes [Unified] ({dirname[:30]}...)")
+                        else:
+                            model_names.append(f"IndoBERT + {classifier_type.title()} [Unified] ({dirname[:30]}...)")
+                    else:
+                        model_names.append(f"{vectorizer_type.title()} + {classifier_type.title()} [Unified] ({dirname[:30]}...)")
+                        
+                except:
+                    model_names.append(f"IndoBERT Hybrid [Unified] ({dirname[:40]}...)")
+                    
+            elif has_vectorizer_config and not has_classifier:
+                # Check if it's a fine-tuned model or feature-only model
+                try:
+                    import json
+                    config_path = os.path.join(model_path, 'vectorizer_config.json')
+                    with open(config_path, 'r') as f:
+                        config = json.load(f)
+                    
+                    vectorizer_type = config.get('vectorizer_type', 'unknown')
+                    if vectorizer_type == 'indobert_finetune':
+                        model_names.append(f"IndoBERT Fine-tuned ({dirname[:40]}...)")
+                    elif vectorizer_type == 'indobert':
+                        model_names.append(f"IndoBERT Features Only ({dirname[:40]}...)")
+                    else:
+                        model_names.append(f"{vectorizer_type.title()} Model ({dirname[:40]}...)")
+                except:
+                    if 'finetune' in dirname:
+                        model_names.append(f"IndoBERT Fine-tuned ({dirname[:40]}...)")
+                    else:
+                        model_names.append(f"IndoBERT Model ({dirname[:40]}...)")
+            else:
+                # Fallback for other HuggingFace models
+                if 'finetune' in dirname or 'fine_tune' in dirname:
+                    model_names.append(f"IndoBERT Fine-tuned ({dirname[:40]}...)")
+                elif 'indobert' in dirname:
+                    model_names.append(f"IndoBERT Model ({dirname[:40]}...)")
+                else:
+                    model_names.append(f"HuggingFace Model ({dirname[:40]}...)")
     
     selected_model_idx = st.sidebar.selectbox(
         "Select Model to Load",

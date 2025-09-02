@@ -261,14 +261,17 @@ class TextClassificationPipeline:
                         # Fine-tuned model handles everything
                         self.vectorizer.save_pretrained(save_dir)
                     else:
-                        # IndoBERT + classifier: save both components
-                        vectorizer_dir = save_dir + '_vectorizer'
-                        classifier_path = save_dir + '_classifier.pkl'
+                        # IndoBERT + classifier: save both components in one folder
+                        os.makedirs(save_dir, exist_ok=True)
                         
-                        self.vectorizer.save_pretrained(vectorizer_dir)
+                        # Save vectorizer (HuggingFace model) in the main directory
+                        self.vectorizer.save_pretrained(save_dir)
+                        
+                        # Save classifier in the same directory
+                        classifier_path = os.path.join(save_dir, 'classifier.pkl')
                         joblib.dump(self.classifier, classifier_path)
                         
-                        # Save pipeline metadata
+                        # Save pipeline metadata in the same directory
                         import json
                         metadata = {
                             'vectorizer_type': self.vectorizer_type,
@@ -279,9 +282,10 @@ class TextClassificationPipeline:
                             'vectorizer_time': self.vectorizer_time,
                             'classifier_time': self.classifier_time,
                             'classes': [int(c) for c in self.classes_] if self.classes_ is not None else None,
-                            'save_format': 'hybrid_huggingface'
+                            'save_format': 'hybrid_huggingface_unified'
                         }
-                        with open(save_dir + '_metadata.json', 'w') as f:
+                        metadata_path = os.path.join(save_dir, 'pipeline_metadata.json')
+                        with open(metadata_path, 'w') as f:
                             json.dump(metadata, f, indent=2)
                     
                     print(f"Model saved in HuggingFace format to {save_dir}")
@@ -420,14 +424,17 @@ class TextClassificationPipeline:
                 # Fine-tuned model handles everything
                 self.vectorizer.save_pretrained(save_dir)
             else:
-                # IndoBERT + classifier: save both components
-                vectorizer_dir = save_dir + '_vectorizer'
-                classifier_path = save_dir + '_classifier.pkl'
+                # IndoBERT + classifier: save both components in one folder
+                os.makedirs(save_dir, exist_ok=True)
                 
-                self.vectorizer.save_pretrained(vectorizer_dir)
+                # Save vectorizer (HuggingFace model) in the main directory
+                self.vectorizer.save_pretrained(save_dir)
+                
+                # Save classifier in the same directory
+                classifier_path = os.path.join(save_dir, 'classifier.pkl')
                 joblib.dump(self.classifier, classifier_path)
                 
-                # Save pipeline metadata
+                # Save pipeline metadata in the same directory
                 import json
                 metadata = {
                     'vectorizer_type': self.vectorizer_type,
@@ -438,9 +445,10 @@ class TextClassificationPipeline:
                     'vectorizer_time': self.vectorizer_time,
                     'classifier_time': self.classifier_time,
                     'classes': [int(c) for c in self.classes_] if self.classes_ is not None else None,
-                    'save_format': 'hybrid_huggingface'
+                    'save_format': 'hybrid_huggingface_unified'
                 }
-                with open(save_dir + '_metadata.json', 'w') as f:
+                metadata_path = os.path.join(save_dir, 'pipeline_metadata.json')
+                with open(metadata_path, 'w') as f:
                     json.dump(metadata, f, indent=2)
             
             print(f"Pipeline saved in HuggingFace format to {save_dir}")
@@ -454,21 +462,74 @@ class TextClassificationPipeline:
         """Load a saved pipeline from either HuggingFace or joblib format"""
         import os
         
-        # Check for HuggingFace format first
-        if filepath.endswith('.pkl'):
-            hf_save_dir = filepath.replace('.pkl', '_hf')
+        # Determine if this is already a HuggingFace directory or needs conversion
+        if os.path.isdir(filepath):
+            # It's already a directory, check if it's a HuggingFace model
+            config_files = ['config.json', 'vectorizer_config.json', 'pytorch_model.bin', 'model.safetensors']
+            if any(os.path.exists(os.path.join(filepath, f)) for f in config_files):
+                hf_save_dir = filepath  # Use as-is
+            else:
+                # Not a HuggingFace directory, treat as regular path
+                hf_save_dir = filepath + '_hf' if not filepath.endswith('_hf') else filepath
         else:
-            hf_save_dir = filepath + '_hf'
+            # It's a file path, generate HuggingFace directory name
+            if filepath.endswith('.pkl'):
+                hf_save_dir = filepath.replace('.pkl', '_hf')
+            else:
+                hf_save_dir = filepath + '_hf'
         
-        if os.path.exists(hf_save_dir):
-            # Load HuggingFace format
+        # Try to load HuggingFace format
+        if os.path.exists(hf_save_dir) and os.path.isdir(hf_save_dir):
             try:
                 print(f"Loading HuggingFace pipeline from {hf_save_dir}...")
                 
-                # Check if it's a fine-tuned model or hybrid model
-                metadata_path = hf_save_dir + '_metadata.json'
+                # Check if it's a pure fine-tuned model (has vectorizer_config.json)
+                vectorizer_config_path = os.path.join(hf_save_dir, 'vectorizer_config.json')
                 
-                if os.path.exists(metadata_path):
+                if os.path.exists(vectorizer_config_path):
+                    # Check vectorizer type to determine loading method
+                    import json
+                    with open(vectorizer_config_path, 'r') as f:
+                        config = json.load(f)
+                    
+                    vectorizer_type = config.get('vectorizer_type', 'indobert_finetune')
+                    
+                    if vectorizer_type == 'indobert_finetune':
+                        # Pure fine-tuned model
+                        instance = cls(vectorizer_type=vectorizer_type, classifier_type='dummy')
+                        
+                        from vectorizers import IndoBERTFineTuneVectorizer
+                        instance.vectorizer = IndoBERTFineTuneVectorizer.from_pretrained(hf_save_dir)
+                        instance.is_fitted = True
+                        
+                        print(f"Fine-tuned IndoBERT pipeline loaded successfully!")
+                        return instance
+                    
+                    elif vectorizer_type == 'indobert':
+                        # This is actually a hybrid model's vectorizer directory
+                        # Fall through to hybrid model loading logic below
+                        pass
+                
+                # Check for hybrid model metadata (IndoBERT + classifier)
+                # Look for metadata in various expected locations (new and old formats)
+                metadata_paths = [
+                    # New unified format: metadata inside the directory
+                    os.path.join(hf_save_dir, 'pipeline_metadata.json'),
+                    # Old format: metadata adjacent to directory
+                    hf_save_dir + '_metadata.json',
+                    os.path.join(os.path.dirname(hf_save_dir), os.path.basename(hf_save_dir) + '_metadata.json'),
+                    # For vectorizer directories, look for metadata without _vectorizer suffix
+                    hf_save_dir.replace('_vectorizer', '_metadata.json'),
+                    os.path.join(os.path.dirname(hf_save_dir), os.path.basename(hf_save_dir).replace('_vectorizer', '_metadata.json'))
+                ]
+                
+                metadata_path = None
+                for path in metadata_paths:
+                    if os.path.exists(path):
+                        metadata_path = path
+                        break
+                
+                if metadata_path:
                     # Hybrid model (IndoBERT + classifier)
                     import json
                     with open(metadata_path, 'r') as f:
@@ -482,15 +543,32 @@ class TextClassificationPipeline:
                         classifier_params=metadata.get('classifier_params', {})
                     )
                     
-                    # Load vectorizer
-                    vectorizer_dir = hf_save_dir + '_vectorizer'
+                    # Load vectorizer (hf_save_dir should be the vectorizer directory)
                     if metadata['vectorizer_type'] == 'indobert':
                         from vectorizers import IndoBERTVectorizer
-                        instance.vectorizer = IndoBERTVectorizer.from_pretrained(vectorizer_dir)
+                        instance.vectorizer = IndoBERTVectorizer.from_pretrained(hf_save_dir)
                     
-                    # Load classifier
-                    classifier_path = hf_save_dir + '_classifier.pkl'
-                    instance.classifier = joblib.load(classifier_path)
+                    # Load classifier (look for classifier file in new and old formats)
+                    classifier_paths = [
+                        # New unified format: classifier inside the directory
+                        os.path.join(hf_save_dir, 'classifier.pkl'),
+                        # Old format: classifier adjacent to directory
+                        hf_save_dir.replace('_vectorizer', '_classifier.pkl'),
+                        os.path.join(os.path.dirname(hf_save_dir), os.path.basename(hf_save_dir).replace('_vectorizer', '_classifier.pkl')),
+                        # Also try with full path replacement for old format
+                        hf_save_dir.replace('_hf_vectorizer', '_hf_classifier.pkl')
+                    ]
+                    
+                    classifier_path = None
+                    for path in classifier_paths:
+                        if os.path.exists(path):
+                            classifier_path = path
+                            break
+                    
+                    if classifier_path:
+                        instance.classifier = joblib.load(classifier_path)
+                    else:
+                        raise Exception(f"Classifier file not found for hybrid model")
                     
                     # Restore metadata
                     instance.training_time = metadata.get('training_time')
@@ -499,35 +577,19 @@ class TextClassificationPipeline:
                     instance.classes_ = np.array(metadata['classes']) if metadata.get('classes') else None
                     instance.is_fitted = True
                     
-                else:
-                    # Pure fine-tuned model (indobert_finetune)
-                    # Load metadata from vectorizer config
-                    config_path = os.path.join(hf_save_dir, 'vectorizer_config.json')
-                    if os.path.exists(config_path):
-                        import json
-                        with open(config_path, 'r') as f:
-                            config = json.load(f)
-                        
-                        vectorizer_type = config.get('vectorizer_type', 'indobert_finetune')
-                    else:
-                        vectorizer_type = 'indobert_finetune'
-                    
-                    # Create instance
-                    instance = cls(vectorizer_type=vectorizer_type, classifier_type='dummy')
-                    
-                    # Load fine-tuned model
-                    from vectorizers import IndoBERTFineTuneVectorizer
-                    instance.vectorizer = IndoBERTFineTuneVectorizer.from_pretrained(hf_save_dir)
-                    instance.is_fitted = True
+                    print(f"Hybrid IndoBERT pipeline loaded successfully!")
+                    return instance
                 
-                print(f"HuggingFace pipeline loaded successfully!")
-                return instance
+                # If we reach here, it might be a directory but not our format
+                raise Exception(f"Unrecognized HuggingFace model format in {hf_save_dir}")
                 
             except Exception as e:
                 print(f"Failed to load HuggingFace model: {e}")
+                # Don't fall through to joblib for directories
+                raise e
         
-        # Fallback to joblib format
-        if os.path.exists(filepath):
+        # Try joblib format for files
+        if os.path.exists(filepath) and os.path.isfile(filepath):
             try:
                 print(f"Loading joblib pipeline from {filepath}...")
                 loaded_pipeline = joblib.load(filepath)
@@ -536,8 +598,10 @@ class TextClassificationPipeline:
                 
             except Exception as e:
                 print(f"Failed to load joblib model: {e}")
+                raise e
         
-        raise FileNotFoundError(f"Pipeline file not found: {filepath} (also checked {hf_save_dir})")
+        # Nothing found
+        raise FileNotFoundError(f"Pipeline not found: {filepath} (also checked {hf_save_dir})")
 
 
     def get_pipeline_info(self) -> Dict[str, Any]:

@@ -77,56 +77,7 @@ class IndonesianSentimentLoader:
                 
         except Exception as e:
             print(f"Error loading dataset: {str(e)}")
-            # print("Falling back to sample dataset...")
-            # return self._create_sample_dataset()
-    
-    def _create_sample_dataset(self) -> Dict[str, pd.DataFrame]:
-        """
-        Create a sample Indonesian sentiment dataset for testing
-        """
-        sample_data = {
-            'text': [
-                "Saya sangat suka makanan ini, rasanya enak sekali!",
-                "Pelayanan di restoran ini sangat buruk dan mengecewakan.",
-                "Film ini benar-benar membosankan, tidak ada yang menarik.",
-                "Terima kasih atas bantuan yang sangat luar biasa!",
-                "Produk ini kualitasnya sangat jelek, tidak sesuai harga.",
-                "Pengalaman berbelanja yang menyenangkan di toko ini.",
-                "Makanan di warung ini tidak enak dan mahal.",
-                "Layanan customer service sangat lambat dan tidak responsif.",
-                "Buku ini sangat bagus dan memberikan banyak inspirasi.",
-                "Aplikasi ini sering error dan sangat mengganggu.",
-                "Tempat wisata yang sangat indah dan menakjubkan.",
-                "Harga produk ini terlalu mahal untuk kualitas yang biasa saja.",
-                "Guru ini mengajar dengan sangat baik dan sabar.",
-                "Website ini loading-nya lambat dan sering hang.",
-                "Konser kemarin benar-benar spektakuler dan menghibur.",
-                "Transportasi umum di kota ini sangat tidak nyaman.",
-                "Terimakasih untuk pelayanan yang ramah dan cepat.",
-                "Game ini sangat membosankan dan tidak challenging."
-            ],
-            'label': [1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0]
-        }
-        
-        df = pd.DataFrame(sample_data)
-        
-        # Split into train/val/test (without stratification due to small sample size)
-        train_df, temp_df = train_test_split(df, test_size=0.4, random_state=42)
-        val_df, test_df = train_test_split(temp_df, test_size=0.5, random_state=42)
-        
-        # Create binary label mapping
-        self.label_mapping = {0: 'negative', 1: 'positive'}
-        
-        splits = {
-            'train': train_df,
-            'validation': val_df,
-            'test': test_df
-        }
-        
-        self.dataset = splits
-        print("Sample dataset created with 20 Indonesian sentiment examples")
-        return splits
-    
+
     def get_train_test_split(self, test_size: float = 0.2, val_size: float = 0.1,
                            random_state: int = 42, max_samples: int = None) -> Tuple[List[str], List[str], List[str], 
                                                           List[Union[str, int]], List[Union[str, int]], List[Union[str, int]]]:
@@ -261,7 +212,6 @@ class DatasetFactory:
             return IndonesianSentimentLoader(dataset_name="indonlu", subset="smsa")
         elif dataset_name.lower() == "sample":
             loader = IndonesianSentimentLoader()
-            loader._create_sample_dataset()
             return loader
         else:
             raise ValueError(f"Unknown dataset: {dataset_name}")
@@ -269,4 +219,4 @@ class DatasetFactory:
     @staticmethod
     def get_available_datasets() -> List[str]:
         """Get list of available datasets"""
-        return ["indonlu", "sample"]
+        return ["indonlu"]

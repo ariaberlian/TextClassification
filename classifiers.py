@@ -4,7 +4,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.neural_network import MLPClassifier
-from typing import Union, Optional, Dict, Any
+from typing import Dict
 import joblib
 import os
 

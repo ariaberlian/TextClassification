@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
-from typing import List, Union, Optional
+from typing import List
 import re
 
 # Optional imports with fallbacks
