@@ -6,6 +6,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support, cla
 import time
 import warnings
 import joblib
+import os
 warnings.filterwarnings('ignore')
 
 
@@ -91,7 +92,6 @@ class TextClassificationPipeline:
         # Create a hash of the entire configuration to avoid long filenames
         config_str = f"{self.vectorizer_type}_{self.classifier_type}_{str(self.vectorizer_params)}_{str(self.classifier_params)}"
         config_hash = hashlib.md5(config_str.encode()).hexdigest()[:12]  # 12 chars for config
-        data_hash = hashlib.md5(str(X_train[:100] + y_train[:100]).encode()).hexdigest()[:8]  # 8 chars for data
         
         # Create short, descriptive filename
         model_filename = f"model_{self.vectorizer_type}_{self.classifier_type}_{config_hash[:8]}.pkl"
@@ -114,14 +114,13 @@ class TextClassificationPipeline:
                         
                     else:
                         # Load hybrid model (IndoBERT + classifier)
-                        vectorizer_dir = hf_model_dir + '_vectorizer'
-                        classifier_path = hf_model_dir + '_classifier.pkl'
-                        metadata_path = hf_model_dir + '_metadata.json'
+                        classifier_path = os.path.join(hf_model_dir, 'classifier.pkl')
+                        metadata_path = os.path.join(hf_model_dir, 'pipeline_metadata.json')
                         
                         # Load vectorizer
                         if self.vectorizer_type == 'indobert':
                             from vectorizers import IndoBERTVectorizer
-                            self.vectorizer = IndoBERTVectorizer.from_pretrained(vectorizer_dir)
+                            self.vectorizer = IndoBERTVectorizer.from_pretrained(hf_model_dir)
                         
                         # Load classifier
                         self.classifier = joblib.load(classifier_path)
@@ -373,13 +372,13 @@ class TextClassificationPipeline:
         )
         
         results = {
-            'accuracy': accuracy * 100,  # Convert to percentage
+            'accuracy': accuracy * 100,
             'precision_weighted': precision * 100,
             'recall_weighted': recall * 100,
-            'f1_weighted': f1 * 100,  # Convert to percentage
+            'f1_weighted': f1 * 100,
             'precision_macro': precision_macro * 100,
             'recall_macro': recall_macro * 100,
-            'f1_macro': f1_macro * 100,  # Convert to percentage
+            'f1_macro': f1_macro * 100,
             'prediction_time': prediction_time,
             'training_time': self.training_time,
             'vectorizer_type': self.vectorizer_type,
@@ -472,7 +471,6 @@ class TextClassificationPipeline:
                 # Not a HuggingFace directory, treat as regular path
                 hf_save_dir = filepath + '_hf' if not filepath.endswith('_hf') else filepath
         else:
-            # It's a file path, generate HuggingFace directory name
             if filepath.endswith('.pkl'):
                 hf_save_dir = filepath.replace('.pkl', '_hf')
             else:
@@ -506,30 +504,12 @@ class TextClassificationPipeline:
                         return instance
                     
                     elif vectorizer_type == 'indobert':
-                        # This is actually a hybrid model's vectorizer directory
-                        # Fall through to hybrid model loading logic below
                         pass
                 
                 # Check for hybrid model metadata (IndoBERT + classifier)
-                # Look for metadata in various expected locations (new and old formats)
-                metadata_paths = [
-                    # New unified format: metadata inside the directory
-                    os.path.join(hf_save_dir, 'pipeline_metadata.json'),
-                    # Old format: metadata adjacent to directory
-                    hf_save_dir + '_metadata.json',
-                    os.path.join(os.path.dirname(hf_save_dir), os.path.basename(hf_save_dir) + '_metadata.json'),
-                    # For vectorizer directories, look for metadata without _vectorizer suffix
-                    hf_save_dir.replace('_vectorizer', '_metadata.json'),
-                    os.path.join(os.path.dirname(hf_save_dir), os.path.basename(hf_save_dir).replace('_vectorizer', '_metadata.json'))
-                ]
+                metadata_path = os.path.join(hf_save_dir, 'pipeline_metadata.json')
                 
-                metadata_path = None
-                for path in metadata_paths:
-                    if os.path.exists(path):
-                        metadata_path = path
-                        break
-                
-                if metadata_path:
+                if os.path.exists(metadata_path):
                     # Hybrid model (IndoBERT + classifier)
                     import json
                     with open(metadata_path, 'r') as f:
@@ -543,32 +523,14 @@ class TextClassificationPipeline:
                         classifier_params=metadata.get('classifier_params', {})
                     )
                     
-                    # Load vectorizer (hf_save_dir should be the vectorizer directory)
+                    # Load vectorizer
                     if metadata['vectorizer_type'] == 'indobert':
                         from vectorizers import IndoBERTVectorizer
                         instance.vectorizer = IndoBERTVectorizer.from_pretrained(hf_save_dir)
                     
-                    # Load classifier (look for classifier file in new and old formats)
-                    classifier_paths = [
-                        # New unified format: classifier inside the directory
-                        os.path.join(hf_save_dir, 'classifier.pkl'),
-                        # Old format: classifier adjacent to directory
-                        hf_save_dir.replace('_vectorizer', '_classifier.pkl'),
-                        os.path.join(os.path.dirname(hf_save_dir), os.path.basename(hf_save_dir).replace('_vectorizer', '_classifier.pkl')),
-                        # Also try with full path replacement for old format
-                        hf_save_dir.replace('_hf_vectorizer', '_hf_classifier.pkl')
-                    ]
-                    
-                    classifier_path = None
-                    for path in classifier_paths:
-                        if os.path.exists(path):
-                            classifier_path = path
-                            break
-                    
-                    if classifier_path:
-                        instance.classifier = joblib.load(classifier_path)
-                    else:
-                        raise Exception(f"Classifier file not found for hybrid model")
+                    # Load classifier
+                    classifier_path = os.path.join(hf_save_dir, 'classifier.pkl')
+                    instance.classifier = joblib.load(classifier_path)
                     
                     # Restore metadata
                     instance.training_time = metadata.get('training_time')
@@ -580,15 +542,12 @@ class TextClassificationPipeline:
                     print(f"Hybrid IndoBERT pipeline loaded successfully!")
                     return instance
                 
-                # If we reach here, it might be a directory but not our format
                 raise Exception(f"Unrecognized HuggingFace model format in {hf_save_dir}")
                 
             except Exception as e:
                 print(f"Failed to load HuggingFace model: {e}")
-                # Don't fall through to joblib for directories
                 raise e
         
-        # Try joblib format for files
         if os.path.exists(filepath) and os.path.isfile(filepath):
             try:
                 print(f"Loading joblib pipeline from {filepath}...")
@@ -600,7 +559,6 @@ class TextClassificationPipeline:
                 print(f"Failed to load joblib model: {e}")
                 raise e
         
-        # Nothing found
         raise FileNotFoundError(f"Pipeline not found: {filepath} (also checked {hf_save_dir})")
 
 
