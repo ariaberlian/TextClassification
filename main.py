@@ -15,7 +15,7 @@ Example usage:
     python main.py --model tfidf_nn --nn-hidden-layers 100 50 --nn-activation relu --nn-early-stopping
     
     # IndoBERT frozen features
-    python main.py --model indobert_frozen --bert-max-length 256 --bert-pooling cls
+    python main.py --model indobert_lr --bert-max-length 256 --bert-pooling cls
     
     # IndoBERT with Neural Network  
     python main.py --model indobert_nn --nn-hidden-layers 128 64 32 --nn-solver adam --nn-max-iter 300
@@ -61,7 +61,7 @@ Examples:
   python main.py --model tfidf_nn --nn-hidden-layers 100 50 --nn-activation relu --nn-early-stopping
   
   # IndoBERT frozen features with custom settings
-  python main.py --model indobert_frozen --bert-max-length 256 --bert-pooling cls --lr-max-iter 2000
+  python main.py --model indobert_lr --bert-max-length 256 --bert-pooling cls --lr-max-iter 2000
   
   # IndoBERT with Neural Network
   python main.py --model indobert_nn --nn-hidden-layers 128 64 32 --nn-solver adam --nn-max-iter 300
@@ -76,7 +76,7 @@ Examples:
     
     # Model selection
     parser.add_argument('--model', choices=['tfidf_lr', 'tfidf_svm', 'tfidf_nb', 'tfidf_nn',
-                                           'indobert_frozen', 'indobert_finetune', 'indobert_nn'], 
+                                           'indobert_lr', 'indobert_svm', 'indobert_nb', 'indobert_nn', 'indobert_finetune'], 
                        default='tfidf_lr', help='Model type to use')
     
     # Dataset parameters
@@ -177,9 +177,17 @@ def build_pipeline_from_args(args) -> TextClassificationPipeline:
         }
         classifier_type = classifier_map.get(classifier_type, classifier_type)
         
-    elif args.model == 'indobert_frozen':
+    elif args.model == 'indobert_lr':
         vectorizer_type = "indobert"
         classifier_type = "logistic_regression"
+        
+    elif args.model == 'indobert_svm':
+        vectorizer_type = "indobert"
+        classifier_type = "svm"
+        
+    elif args.model == 'indobert_nb':
+        vectorizer_type = "indobert"
+        classifier_type = "naive_bayes"
         
     elif args.model == 'indobert_nn':
         vectorizer_type = "indobert"
@@ -380,10 +388,13 @@ def main():
     # Tips for users
     print("\n[TIPS] Optimization tips:")
     print("- Models are automatically saved and reused (unless --force-retrain is used)")
+    print("- Transformer models (IndoBERT) are saved in HuggingFace format for GPU->CPU compatibility")
+    print("- Traditional ML models (TF-IDF) are saved in joblib format for efficiency")
     print("- Use --force-retrain to retrain existing models")
     print("- Adjust --tfidf-max-features for TF-IDF models")
     print("- Try different --bert-pooling strategies for IndoBERT")
     print("- Increase --bert-epochs for better fine-tuning results")
+    print("- Models can be trained on GPU and used for inference on CPU")
     print("- Use --quiet to reduce output verbosity")
     print("- Run with --help to see all available parameters")
     

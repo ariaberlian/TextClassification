@@ -230,6 +230,80 @@ class IndoBERTVectorizer(BaseVectorizer):
             raise ValueError("Vectorizer must be fitted before transform")
         
         return self._get_embeddings(texts)
+    
+    def save_pretrained(self, save_directory: str) -> None:
+        """Save model and tokenizer using HuggingFace format"""
+        import os
+        if not self.is_fitted:
+            raise ValueError("Vectorizer must be fitted before saving")
+        
+        os.makedirs(save_directory, exist_ok=True)
+        
+        # Save model and tokenizer using HuggingFace format
+        self.model.save_pretrained(save_directory)
+        self.tokenizer.save_pretrained(save_directory)
+        
+        # Save additional metadata
+        import json
+        metadata = {
+            'model_name': self.model_name,
+            'max_length': self.max_length,
+            'pooling_strategy': self.pooling_strategy,
+            'vectorizer_type': 'indobert'
+        }
+        with open(os.path.join(save_directory, 'vectorizer_config.json'), 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        print(f"IndoBERT model and tokenizer saved to {save_directory}")
+    
+    @classmethod
+    def from_pretrained(cls, save_directory: str, **kwargs) -> 'IndoBERTVectorizer':
+        """Load model and tokenizer from HuggingFace format"""
+        import os
+        import json
+        
+        if not os.path.exists(save_directory):
+            raise FileNotFoundError(f"Directory not found: {save_directory}")
+        
+        # Load metadata
+        config_path = os.path.join(save_directory, 'vectorizer_config.json')
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                metadata = json.load(f)
+        else:
+            # Fallback to default values if config not found
+            metadata = {
+                'model_name': 'indolem/indobert-base-uncased',
+                'max_length': 512,
+                'pooling_strategy': 'mean'
+            }
+        
+        # Override with any provided kwargs
+        metadata.update(kwargs)
+        
+        # Create instance with original parameters
+        instance = cls(
+            model_name=metadata['model_name'],
+            max_length=metadata['max_length'],
+            pooling_strategy=metadata['pooling_strategy']
+        )
+        
+        # Load the model and tokenizer
+        from transformers import AutoTokenizer, AutoModel
+        
+        instance.tokenizer = AutoTokenizer.from_pretrained(save_directory)
+        instance.model = AutoModel.from_pretrained(save_directory)
+        
+        # Set device with automatic detection
+        import torch
+        instance.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        instance.model.to(instance.device)
+        instance.model.eval()
+        
+        instance.is_fitted = True
+        print(f"IndoBERT model loaded from {save_directory} on device: {instance.device}")
+        
+        return instance
 
 
 class IndoBERTFineTuneVectorizer(BaseVectorizer):
@@ -374,7 +448,7 @@ class IndoBERTFineTuneVectorizer(BaseVectorizer):
         
         self.model.eval()
         self.is_fitted = True
-        print("✅ Fine-tuning completed!")
+        print("Fine-tuning completed successfully!")
         return self
     
     def transform(self, texts: List[str]) -> np.ndarray:
@@ -420,6 +494,92 @@ class IndoBERTFineTuneVectorizer(BaseVectorizer):
         """Get class predictions"""
         probs = self.transform(texts)
         return np.argmax(probs, axis=1)
+    
+    def save_pretrained(self, save_directory: str) -> None:
+        """Save model and tokenizer using HuggingFace format"""
+        import os
+        if not self.is_fitted:
+            raise ValueError("Model must be fine-tuned before saving")
+        
+        os.makedirs(save_directory, exist_ok=True)
+        
+        # Save model and tokenizer using HuggingFace format
+        self.model.save_pretrained(save_directory)
+        self.tokenizer.save_pretrained(save_directory)
+        
+        # Save additional metadata
+        import json
+        metadata = {
+            'model_name': self.model_name,
+            'max_length': self.max_length,
+            'num_labels': self.num_labels,
+            'learning_rate': self.learning_rate,
+            'num_epochs': self.num_epochs,
+            'batch_size': self.batch_size,
+            'warmup_steps': self.warmup_steps,
+            'vectorizer_type': 'indobert_finetune'
+        }
+        with open(os.path.join(save_directory, 'vectorizer_config.json'), 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        print(f"Model and tokenizer saved to {save_directory}")
+    
+    @classmethod
+    def from_pretrained(cls, save_directory: str, **kwargs) -> 'IndoBERTFineTuneVectorizer':
+        """Load model and tokenizer from HuggingFace format"""
+        import os
+        import json
+        
+        if not os.path.exists(save_directory):
+            raise FileNotFoundError(f"Directory not found: {save_directory}")
+        
+        # Load metadata
+        config_path = os.path.join(save_directory, 'vectorizer_config.json')
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                metadata = json.load(f)
+        else:
+            # Fallback to default values if config not found
+            metadata = {
+                'model_name': 'indolem/indobert-base-uncased',
+                'max_length': 256,
+                'num_labels': 2,
+                'learning_rate': 2e-5,
+                'num_epochs': 3,
+                'batch_size': 16,
+                'warmup_steps': 100
+            }
+        
+        # Override with any provided kwargs
+        metadata.update(kwargs)
+        
+        # Create instance with original parameters
+        instance = cls(
+            model_name=metadata['model_name'],
+            max_length=metadata['max_length'],
+            num_labels=metadata['num_labels'],
+            learning_rate=metadata['learning_rate'],
+            num_epochs=metadata['num_epochs'],
+            batch_size=metadata['batch_size'],
+            warmup_steps=metadata['warmup_steps']
+        )
+        
+        # Load the fine-tuned model and tokenizer
+        from transformers import AutoTokenizer, AutoModelForSequenceClassification
+        
+        instance.tokenizer = AutoTokenizer.from_pretrained(save_directory)
+        instance.model = AutoModelForSequenceClassification.from_pretrained(save_directory)
+        
+        # Set device with automatic detection
+        import torch
+        instance.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        instance.model.to(instance.device)
+        instance.model.eval()
+        
+        instance.is_fitted = True
+        print(f"Model loaded from {save_directory} on device: {instance.device}")
+        
+        return instance
 
 
 class VectorizerFactory:

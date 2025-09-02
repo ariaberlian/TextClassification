@@ -4,20 +4,15 @@ Interactive web interface for main.py functionality
 """
 
 import streamlit as st
-import sys
 import warnings
 warnings.filterwarnings('ignore')
 import pandas as pd
-from typing import Dict, Any, List
 import time
 import io
 from contextlib import redirect_stdout, redirect_stderr
 
-# Import main.py functions
 try:
-    from main import build_pipeline_from_args, run_classification_pipeline
-    from dataset_loader import DatasetFactory
-    from pipeline import TextClassificationPipeline
+    from main import run_classification_pipeline
     st.success("Successfully imported modules")
 except ImportError as e:
     st.error(f"L Import error: {e}")
@@ -43,7 +38,7 @@ st.sidebar.subheader("Model Selection")
 model = st.sidebar.selectbox(
     "Choose Model",
     ['tfidf_lr', 'tfidf_svm', 'tfidf_nb', 'tfidf_nn',
-     'indobert_frozen', 'indobert_finetune', 'indobert_nn'],
+     'indobert_lr', 'indobert_svm', 'indobert_nb', 'indobert_nn', 'indobert_finetune'],
     index=0,
     help="Select the model architecture to use"
 )
@@ -88,7 +83,7 @@ if model == 'indobert_finetune':
 # Classifier-specific parameters
 classifier_type = model.split('_')[1] if '_' in model else 'lr'
 
-if classifier_type == 'lr' or (model == 'indobert_frozen'):
+if classifier_type == 'lr' or (model == 'indobert_lr'):
     with st.sidebar.expander("Logistic Regression Parameters"):
         lr_C = st.slider("Regularization (C)", 0.01, 10.0, 1.0, 0.01)
         lr_max_iter = st.number_input("Max Iterations", 100, 5000, 1000)
@@ -124,16 +119,22 @@ verbose = st.sidebar.checkbox("Verbose Output", value=True)
 st.sidebar.subheader("Load Saved Model")
 import os
 import glob
-import pickle
 
 # Get available saved models
 def get_saved_models():
     model_files = []
     if os.path.exists('saved_models'):
-        # Get pickle files
+        # Get pickle files (traditional ML models)
         pkl_files = glob.glob('saved_models/*.pkl')
-        # Get HuggingFace model directories
-        dirs = [d for d in glob.glob('saved_models/*') if os.path.isdir(d)]
+        
+        # Get HuggingFace model directories (should contain config.json or vectorizer_config.json)
+        dirs = []
+        for d in glob.glob('saved_models/*'):
+            if os.path.isdir(d):
+                # Check if it's a HuggingFace model directory
+                config_files = ['config.json', 'vectorizer_config.json', 'pytorch_model.bin', 'model.safetensors']
+                if any(os.path.exists(os.path.join(d, f)) for f in config_files):
+                    dirs.append(d)
         
         model_files.extend(pkl_files)
         model_files.extend(dirs)
@@ -187,55 +188,14 @@ if saved_models:
         try:
             selected_model_path = saved_models[selected_model_idx]
             
-            if selected_model_path.endswith('.pkl'):
-                # Validate file before loading
-                if not os.path.exists(selected_model_path):
-                    raise Exception(f"Model file not found: {selected_model_path}")
-                
-                file_size = os.path.getsize(selected_model_path)
-                if file_size == 0:
-                    raise Exception(f"Model file is empty: {selected_model_path}")
-                
-                if file_size < 1000:  # Suspiciously small for a trained model
-                    st.sidebar.warning(f"⚠️ Model file is very small ({file_size} bytes). This might indicate corruption.")
-                
-                # Load pickle model with better error handling
-                st.sidebar.info("Loading model file...")
-                
-                # Try different loading approaches (prioritize joblib since that's what's used for saving)
-                pipeline = None
-                error_messages = []
-                
-                # Method 1: Try joblib first (this is the correct format based on pipeline.py)
-                try:
-                    import joblib
-                    pipeline = joblib.load(selected_model_path)
-                except ImportError:
-                    error_messages.append("Joblib not available")
-                except Exception as e1:
-                    error_messages.append(f"Joblib: {str(e1)}")
-                
-                # Method 2: Fall back to standard pickle loading
-                if pipeline is None:
-                    try:
-                        with open(selected_model_path, 'rb') as f:
-                            pipeline = pickle.load(f)
-                    except Exception as e2:
-                        error_messages.append(f"Standard pickle: {str(e2)}")
-                
-                # Method 3: Try different pickle protocol
-                if pipeline is None:
-                    try:
-                        import pickle5 as pickle_alt
-                        with open(selected_model_path, 'rb') as f:
-                            pipeline = pickle_alt.load(f)
-                    except ImportError:
-                        error_messages.append("Pickle5 not available")
-                    except Exception as e3:
-                        error_messages.append(f"Pickle5: {str(e3)}")
-                
-                if pipeline is None:
-                    raise Exception(f"Could not load model. Errors: {'; '.join(error_messages)}")
+            st.sidebar.info("Loading model...")
+            
+            # Use the new hybrid loading approach
+            from pipeline import TextClassificationPipeline
+            
+            try:
+                # Load using the new hybrid approach
+                pipeline = TextClassificationPipeline.load_pipeline(selected_model_path)
                 
                 # Validate the loaded pipeline
                 if not hasattr(pipeline, 'predict') or not hasattr(pipeline, 'predict_proba'):
@@ -250,36 +210,60 @@ if saved_models:
                 except Exception as e:
                     raise Exception(f"Pipeline validation failed: {str(e)}")
                 
+                # Determine model type based on path and pipeline
+                if selected_model_path.endswith('.pkl'):
+                    model_type = 'pickle'
+                elif os.path.isdir(selected_model_path):
+                    model_type = 'huggingface'
+                else:
+                    # Check if HuggingFace format was loaded
+                    model_type = 'huggingface' if pipeline._get_model_save_strategy() == 'huggingface' else 'pickle'
+                
                 # Store in session state
                 st.session_state['pipeline'] = pipeline
                 st.session_state['trained'] = True
                 st.session_state['loaded_model_path'] = selected_model_path
-                st.session_state['loaded_model_type'] = 'pickle'
+                st.session_state['loaded_model_type'] = model_type
                 
-                
+                # Show success message with model info
                 st.sidebar.success(f"✅ Model loaded successfully!")
                 st.sidebar.info(f"📁 {os.path.basename(selected_model_path)}")
                 
-            else:
-                # Load HuggingFace model directory
-                from transformers import AutoTokenizer, AutoModelForSequenceClassification
+                # Show additional info about the model
+                if hasattr(pipeline, '_is_transformer_vectorizer') and pipeline._is_transformer_vectorizer():
+                    st.sidebar.info(f"🤗 Transformer model (GPU→CPU compatible)")
+                    if hasattr(pipeline.vectorizer, 'device'):
+                        st.sidebar.info(f"🔧 Device: {pipeline.vectorizer.device}")
+                else:
+                    st.sidebar.info(f"⚙️ Traditional ML model")
                 
-                # Load tokenizer and model
-                tokenizer = AutoTokenizer.from_pretrained(selected_model_path)
-                model = AutoModelForSequenceClassification.from_pretrained(selected_model_path)
+            except Exception as loading_error:
+                # If new loading fails, try fallback methods for backward compatibility
+                st.sidebar.warning("New loading method failed, trying fallback...")
                 
-                # Store in session state
-                st.session_state['hf_tokenizer'] = tokenizer
-                st.session_state['hf_model'] = model
-                st.session_state['trained'] = True
-                st.session_state['loaded_model_path'] = selected_model_path
-                st.session_state['loaded_model_type'] = 'huggingface'
-                
-                st.sidebar.success(f"✅ HuggingFace model loaded!")
-                st.sidebar.info(f"📁 {os.path.basename(selected_model_path)}")
+                if selected_model_path.endswith('.pkl'):
+                    # Fallback to direct joblib loading for old pickle files
+                    import joblib
+                    pipeline = joblib.load(selected_model_path)
+                    model_type = 'pickle'
+                    
+                    # Store in session state
+                    st.session_state['pipeline'] = pipeline
+                    st.session_state['trained'] = True
+                    st.session_state['loaded_model_path'] = selected_model_path
+                    st.session_state['loaded_model_type'] = model_type
+                    
+                    st.sidebar.success(f"✅ Legacy model loaded!")
+                    st.sidebar.info(f"📁 {os.path.basename(selected_model_path)}")
+                    
+                else:
+                    # Re-raise the original error for HuggingFace models
+                    raise loading_error
                 
         except Exception as e:
             st.sidebar.error(f"❌ Error loading model: {str(e)}")
+            import traceback
+            st.sidebar.error(f"Details: {traceback.format_exc()}")
 
 else:
     st.sidebar.info("No saved models found in 'saved_models' directory")
@@ -345,9 +329,9 @@ with tab1:
                         self.bert_num_labels = 2
                     
                     # Classifier parameters
-                    self.lr_C = lr_C if classifier_type == 'lr' or model == 'indobert_frozen' else 1.0
-                    self.lr_max_iter = lr_max_iter if classifier_type == 'lr' or model == 'indobert_frozen' else 1000
-                    self.lr_solver = lr_solver if classifier_type == 'lr' or model == 'indobert_frozen' else 'lbfgs'
+                    self.lr_C = lr_C if classifier_type == 'lr' or model == 'indobert_lr' else 1.0
+                    self.lr_max_iter = lr_max_iter if classifier_type == 'lr' or model == 'indobert_lr' else 1000
+                    self.lr_solver = lr_solver if classifier_type == 'lr' or model == 'indobert_lr' else 'lbfgs'
                     
                     self.svm_C = svm_C if classifier_type == 'svm' else 1.0
                     self.svm_kernel = svm_kernel if classifier_type == 'svm' else 'rbf'
@@ -511,41 +495,14 @@ with tab2:
                 # Start timing
                 start_time = time.time()
                 
-                # Check model type and make prediction accordingly
-                if st.session_state.get('loaded_model_type') == 'huggingface':
-                    # HuggingFace model prediction
-                    import torch
-                    from transformers import AutoTokenizer, AutoModelForSequenceClassification
-                    import torch.nn.functional as F
-                    
-                    tokenizer = st.session_state['hf_tokenizer']
-                    model = st.session_state['hf_model']
-                    
-                    # Tokenize input (measure tokenization time)
-                    tokenize_start = time.time()
-                    inputs = tokenizer(test_text, return_tensors="pt", truncation=True, padding=True, max_length=512)
-                    tokenize_time = time.time() - tokenize_start
-                    
-                    # Get prediction (measure inference time)
-                    inference_start = time.time()
-                    with torch.no_grad():
-                        outputs = model(**inputs)
-                        logits = outputs.logits
-                        probabilities_tensor = F.softmax(logits, dim=-1)
-                        probabilities = probabilities_tensor.numpy()[0]
-                        prediction = [torch.argmax(logits, dim=-1).item()]
-                    inference_time = time.time() - inference_start
-                    
-                else:
-                    # Traditional pipeline prediction
-                    pipeline = st.session_state['pipeline']
-                    
-                    # Make prediction (measure total pipeline time)
-                    tokenize_start = time.time()
-                    prediction = pipeline.predict([test_text])
-                    probabilities = pipeline.predict_proba([test_text])[0]
-                    inference_time = time.time() - tokenize_start
-                    tokenize_time = 0  # Pipeline includes tokenization
+                # Use the unified pipeline interface (works for all model types)
+                pipeline = st.session_state['pipeline']
+                
+                # Make prediction (measure total pipeline time)
+                inference_start = time.time()
+                prediction = pipeline.predict([test_text])
+                probabilities = pipeline.predict_proba([test_text])[0]
+                inference_time = time.time() - inference_start
                 
                 # Calculate total prediction time
                 total_time = time.time() - start_time
@@ -608,13 +565,15 @@ with tab2:
                     
                     # Timing details
                     st.markdown("**⏱️ Timing Breakdown:**")
-                    if st.session_state.get('loaded_model_type') == 'huggingface':
-                        st.markdown(f"- **Tokenization**: {tokenize_time*1000:.1f}ms")
-                        st.markdown(f"- **Model Inference**: {inference_time*1000:.1f}ms")
-                        st.markdown(f"- **Total Time**: {total_time*1000:.1f}ms")
+                    st.markdown(f"- **Pipeline Time**: {inference_time*1000:.1f}ms")
+                    st.markdown(f"- **Total Time**: {total_time*1000:.1f}ms")
+                    
+                    # Show model type info
+                    model_type = st.session_state.get('loaded_model_type', 'unknown')
+                    if model_type == 'huggingface':
+                        st.markdown("- **Format**: HuggingFace (GPU→CPU compatible)")
                     else:
-                        st.markdown(f"- **Pipeline Time**: {inference_time*1000:.1f}ms")
-                        st.markdown(f"- **Total Time**: {total_time*1000:.1f}ms")
+                        st.markdown("- **Format**: Traditional ML")
                     
                     # Class probabilities
                     st.markdown("**Class Probabilities:**")

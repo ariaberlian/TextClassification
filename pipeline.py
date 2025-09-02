@@ -5,10 +5,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, classification_report, confusion_matrix
 import time
 import warnings
+import joblib
 warnings.filterwarnings('ignore')
 
-from vectorizers import BaseVectorizer, VectorizerFactory
-from classifiers import BaseClassifier, ClassifierFactory
+
+from vectorizers import VectorizerFactory
+from classifiers import ClassifierFactory
 
 
 class TextClassificationPipeline:
@@ -48,6 +50,22 @@ class TextClassificationPipeline:
         self.classifier_time = None
         self.classes_ = None
     
+    def _is_transformer_vectorizer(self) -> bool:
+        """Check if the vectorizer is transformer-based"""
+        return self.vectorizer_type.lower() in ['indobert', 'indobert_finetune']
+    
+    def _supports_huggingface_save(self) -> bool:
+        """Check if the vectorizer supports HuggingFace save format"""
+        return (hasattr(self.vectorizer, 'save_pretrained') and 
+                hasattr(self.vectorizer, 'from_pretrained'))
+    
+    def _get_model_save_strategy(self) -> str:
+        """Determine the save strategy based on model type"""
+        if self._is_transformer_vectorizer() and self._supports_huggingface_save():
+            return 'huggingface'
+        else:
+            return 'joblib'
+    
     def fit(self, X_train: List[str], y_train: List[Union[str, int]], 
            force_retrain: bool = False, auto_save: bool = True, 
            model_dir: str = "saved_models", verbose: bool = True) -> 'TextClassificationPipeline':
@@ -80,26 +98,70 @@ class TextClassificationPipeline:
         model_path = os.path.join(model_dir, model_filename)
         
         # Try to load existing model if not forcing retrain
-        if not force_retrain and os.path.exists(model_path):
+        hf_model_dir = model_path.replace('.pkl', '_hf')
+        
+        if not force_retrain and (os.path.exists(model_path) or os.path.exists(hf_model_dir)):
             try:
-                print(f"Loading existing model from {model_path}...")
-                loaded_pipeline = joblib.load(model_path)
+                # Check for HuggingFace format first
+                if os.path.exists(hf_model_dir):
+                    print(f"Loading existing HuggingFace model from {hf_model_dir}...")
+                    
+                    if self.vectorizer_type == 'indobert_finetune':
+                        # Load fine-tuned model directly
+                        from vectorizers import IndoBERTFineTuneVectorizer
+                        self.vectorizer = IndoBERTFineTuneVectorizer.from_pretrained(hf_model_dir)
+                        self.training_time = getattr(self.vectorizer, 'training_time', None)
+                        
+                    else:
+                        # Load hybrid model (IndoBERT + classifier)
+                        vectorizer_dir = hf_model_dir + '_vectorizer'
+                        classifier_path = hf_model_dir + '_classifier.pkl'
+                        metadata_path = hf_model_dir + '_metadata.json'
+                        
+                        # Load vectorizer
+                        if self.vectorizer_type == 'indobert':
+                            from vectorizers import IndoBERTVectorizer
+                            self.vectorizer = IndoBERTVectorizer.from_pretrained(vectorizer_dir)
+                        
+                        # Load classifier
+                        self.classifier = joblib.load(classifier_path)
+                        
+                        # Load metadata
+                        if os.path.exists(metadata_path):
+                            import json
+                            with open(metadata_path, 'r') as f:
+                                metadata = json.load(f)
+                            self.training_time = metadata.get('training_time')
+                            self.vectorizer_time = metadata.get('vectorizer_time')
+                            self.classifier_time = metadata.get('classifier_time')
+                            self.classes_ = np.array(metadata['classes']) if metadata.get('classes') else None
+                    
+                    self.is_fitted = True
+                    print(f"HuggingFace model loaded successfully!")
+                    if self.training_time:
+                        print(f"   Original training time: {self.training_time:.2f}s")
+                    return self
                 
-                # Copy loaded attributes to current instance
-                self.vectorizer = loaded_pipeline.vectorizer
-                self.classifier = loaded_pipeline.classifier
-                self.training_time = loaded_pipeline.training_time
-                self.vectorizer_time = getattr(loaded_pipeline, 'vectorizer_time', None)
-                self.classifier_time = getattr(loaded_pipeline, 'classifier_time', None)
-                self.is_fitted = loaded_pipeline.is_fitted
-                self.classes_ = loaded_pipeline.classes_
-                
-                print(f"Model loaded successfully! (Original training time: {self.training_time:.2f}s)")
-                if self.vectorizer_time is not None and self.classifier_time is not None:
-                    print(f"   Original vectorizer time: {self.vectorizer_time:.2f}s")
-                    print(f"   Original classifier time: {self.classifier_time:.2f}s")
-                return self
-                
+                # Fallback to joblib format
+                elif os.path.exists(model_path):
+                    print(f"Loading existing joblib model from {model_path}...")
+                    loaded_pipeline = joblib.load(model_path)
+                    
+                    # Copy loaded attributes to current instance
+                    self.vectorizer = loaded_pipeline.vectorizer
+                    self.classifier = loaded_pipeline.classifier
+                    self.training_time = loaded_pipeline.training_time
+                    self.vectorizer_time = getattr(loaded_pipeline, 'vectorizer_time', None)
+                    self.classifier_time = getattr(loaded_pipeline, 'classifier_time', None)
+                    self.is_fitted = loaded_pipeline.is_fitted
+                    self.classes_ = loaded_pipeline.classes_
+                    
+                    print(f"Joblib model loaded successfully! (Original training time: {self.training_time:.2f}s)")
+                    if self.vectorizer_time is not None and self.classifier_time is not None:
+                        print(f"   Original vectorizer time: {self.vectorizer_time:.2f}s")
+                        print(f"   Original classifier time: {self.classifier_time:.2f}s")
+                    return self
+                    
             except Exception as e:
                 print(f"Failed to load model: {e}. Training new model...")
         
@@ -187,11 +249,46 @@ class TextClassificationPipeline:
             print(f"   Classifier: {classifier_time:.2f}s ({classifier_time/self.training_time*100:.1f}%)")
             print(f"   Classes detected: {len(self.classes_)} -> {list(self.classes_)}")
         
-        # Auto-save the trained model
+        # Auto-save the trained model using appropriate strategy
         if auto_save:
             try:
-                joblib.dump(self, model_path)
-                print(f"Model saved to {model_path}")
+                save_strategy = self._get_model_save_strategy()
+                if save_strategy == 'huggingface':
+                    # Use HuggingFace format for transformer models
+                    save_dir = model_path.replace('.pkl', '_hf')
+                    
+                    if self.vectorizer_type == 'indobert_finetune':
+                        # Fine-tuned model handles everything
+                        self.vectorizer.save_pretrained(save_dir)
+                    else:
+                        # IndoBERT + classifier: save both components
+                        vectorizer_dir = save_dir + '_vectorizer'
+                        classifier_path = save_dir + '_classifier.pkl'
+                        
+                        self.vectorizer.save_pretrained(vectorizer_dir)
+                        joblib.dump(self.classifier, classifier_path)
+                        
+                        # Save pipeline metadata
+                        import json
+                        metadata = {
+                            'vectorizer_type': self.vectorizer_type,
+                            'classifier_type': self.classifier_type,
+                            'vectorizer_params': self.vectorizer_params,
+                            'classifier_params': self.classifier_params,
+                            'training_time': self.training_time,
+                            'vectorizer_time': self.vectorizer_time,
+                            'classifier_time': self.classifier_time,
+                            'classes': [int(c) for c in self.classes_] if self.classes_ is not None else None,
+                            'save_format': 'hybrid_huggingface'
+                        }
+                        with open(save_dir + '_metadata.json', 'w') as f:
+                            json.dump(metadata, f, indent=2)
+                    
+                    print(f"Model saved in HuggingFace format to {save_dir}")
+                else:
+                    # Use joblib for traditional ML models
+                    joblib.dump(self, model_path)
+                    print(f"Model saved to {model_path}")
             except Exception as e:
                 print(f"Failed to save model: {e}")
         
@@ -306,24 +403,143 @@ class TextClassificationPipeline:
         return confusion_matrix(y_test, predictions)
     
     def save_pipeline(self, filepath: str) -> None:
-        """Save the entire pipeline"""
+        """Save the entire pipeline using appropriate format"""
         if not self.is_fitted:
             raise ValueError("Pipeline must be fitted before saving")
         
-        import joblib
-        joblib.dump(self, filepath)
+        save_strategy = self._get_model_save_strategy()
+        
+        if save_strategy == 'huggingface':
+            # Use HuggingFace format for transformer models
+            if filepath.endswith('.pkl'):
+                save_dir = filepath.replace('.pkl', '_hf')
+            else:
+                save_dir = filepath + '_hf'
+            
+            if self.vectorizer_type == 'indobert_finetune':
+                # Fine-tuned model handles everything
+                self.vectorizer.save_pretrained(save_dir)
+            else:
+                # IndoBERT + classifier: save both components
+                vectorizer_dir = save_dir + '_vectorizer'
+                classifier_path = save_dir + '_classifier.pkl'
+                
+                self.vectorizer.save_pretrained(vectorizer_dir)
+                joblib.dump(self.classifier, classifier_path)
+                
+                # Save pipeline metadata
+                import json
+                metadata = {
+                    'vectorizer_type': self.vectorizer_type,
+                    'classifier_type': self.classifier_type,
+                    'vectorizer_params': self.vectorizer_params,
+                    'classifier_params': self.classifier_params,
+                    'training_time': self.training_time,
+                    'vectorizer_time': self.vectorizer_time,
+                    'classifier_time': self.classifier_time,
+                    'classes': [int(c) for c in self.classes_] if self.classes_ is not None else None,
+                    'save_format': 'hybrid_huggingface'
+                }
+                with open(save_dir + '_metadata.json', 'w') as f:
+                    json.dump(metadata, f, indent=2)
+            
+            print(f"Pipeline saved in HuggingFace format to {save_dir}")
+        else:
+            # Use joblib for traditional ML models
+            joblib.dump(self, filepath)
+            print(f"Pipeline saved to {filepath}")
     
     @classmethod
     def load_pipeline(cls, filepath: str) -> 'TextClassificationPipeline':
-        """Load a saved pipeline"""
-        import joblib
+        """Load a saved pipeline from either HuggingFace or joblib format"""
         import os
         
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(f"Pipeline file not found: {filepath}")
+        # Check for HuggingFace format first
+        if filepath.endswith('.pkl'):
+            hf_save_dir = filepath.replace('.pkl', '_hf')
+        else:
+            hf_save_dir = filepath + '_hf'
         
-        return joblib.load(filepath)
-    
+        if os.path.exists(hf_save_dir):
+            # Load HuggingFace format
+            try:
+                print(f"Loading HuggingFace pipeline from {hf_save_dir}...")
+                
+                # Check if it's a fine-tuned model or hybrid model
+                metadata_path = hf_save_dir + '_metadata.json'
+                
+                if os.path.exists(metadata_path):
+                    # Hybrid model (IndoBERT + classifier)
+                    import json
+                    with open(metadata_path, 'r') as f:
+                        metadata = json.load(f)
+                    
+                    # Create instance with original parameters
+                    instance = cls(
+                        vectorizer_type=metadata['vectorizer_type'],
+                        classifier_type=metadata['classifier_type'],
+                        vectorizer_params=metadata.get('vectorizer_params', {}),
+                        classifier_params=metadata.get('classifier_params', {})
+                    )
+                    
+                    # Load vectorizer
+                    vectorizer_dir = hf_save_dir + '_vectorizer'
+                    if metadata['vectorizer_type'] == 'indobert':
+                        from vectorizers import IndoBERTVectorizer
+                        instance.vectorizer = IndoBERTVectorizer.from_pretrained(vectorizer_dir)
+                    
+                    # Load classifier
+                    classifier_path = hf_save_dir + '_classifier.pkl'
+                    instance.classifier = joblib.load(classifier_path)
+                    
+                    # Restore metadata
+                    instance.training_time = metadata.get('training_time')
+                    instance.vectorizer_time = metadata.get('vectorizer_time')
+                    instance.classifier_time = metadata.get('classifier_time')
+                    instance.classes_ = np.array(metadata['classes']) if metadata.get('classes') else None
+                    instance.is_fitted = True
+                    
+                else:
+                    # Pure fine-tuned model (indobert_finetune)
+                    # Load metadata from vectorizer config
+                    config_path = os.path.join(hf_save_dir, 'vectorizer_config.json')
+                    if os.path.exists(config_path):
+                        import json
+                        with open(config_path, 'r') as f:
+                            config = json.load(f)
+                        
+                        vectorizer_type = config.get('vectorizer_type', 'indobert_finetune')
+                    else:
+                        vectorizer_type = 'indobert_finetune'
+                    
+                    # Create instance
+                    instance = cls(vectorizer_type=vectorizer_type, classifier_type='dummy')
+                    
+                    # Load fine-tuned model
+                    from vectorizers import IndoBERTFineTuneVectorizer
+                    instance.vectorizer = IndoBERTFineTuneVectorizer.from_pretrained(hf_save_dir)
+                    instance.is_fitted = True
+                
+                print(f"HuggingFace pipeline loaded successfully!")
+                return instance
+                
+            except Exception as e:
+                print(f"Failed to load HuggingFace model: {e}")
+        
+        # Fallback to joblib format
+        if os.path.exists(filepath):
+            try:
+                print(f"Loading joblib pipeline from {filepath}...")
+                loaded_pipeline = joblib.load(filepath)
+                print(f"Joblib pipeline loaded successfully!")
+                return loaded_pipeline
+                
+            except Exception as e:
+                print(f"Failed to load joblib model: {e}")
+        
+        raise FileNotFoundError(f"Pipeline file not found: {filepath} (also checked {hf_save_dir})")
+
+
     def get_pipeline_info(self) -> Dict[str, Any]:
         """Get information about the current pipeline configuration"""
         return {
@@ -335,126 +551,3 @@ class TextClassificationPipeline:
             'classes': list(self.classes_) if self.classes_ is not None else None,
             'training_time': self.training_time
         }
-
-
-class PipelineComparison:
-    """
-    Class for comparing different pipeline configurations
-    """
-    
-    def __init__(self):
-        self.results = []
-        self.pipelines = []
-    
-    def add_pipeline(self, pipeline: TextClassificationPipeline, name: str = None) -> None:
-        """Add a pipeline to the comparison"""
-        if name is None:
-            name = f"{pipeline.vectorizer_type}_{pipeline.classifier_type}"
-        
-        self.pipelines.append({
-            'name': name,
-            'pipeline': pipeline
-        })
-    
-    def compare_pipelines(self, X_train: List[str], y_train: List[Union[str, int]],
-                         X_test: List[str], y_test: List[Union[str, int]]) -> pd.DataFrame:
-        """
-        Compare all added pipelines on the same dataset
-        
-        Args:
-            X_train: Training texts
-            y_train: Training labels
-            X_test: Test texts
-            y_test: Test labels
-            
-        Returns:
-            DataFrame with comparison results
-        """
-        results = []
-        
-        for pipeline_info in self.pipelines:
-            name = pipeline_info['name']
-            pipeline = pipeline_info['pipeline']
-            
-            print(f"\nTraining and evaluating: {name}")
-            print("-" * 50)
-            
-            try:
-                # Fit and evaluate
-                pipeline.fit(X_train, y_train)
-                eval_results = pipeline.evaluate(X_test, y_test)
-                
-                # Add pipeline name to results
-                eval_results['pipeline_name'] = name
-                results.append(eval_results)
-                
-            except Exception as e:
-                print(f"Error with {name}: {str(e)}")
-                continue
-        
-        self.results = results
-        
-        # Convert to DataFrame for easy comparison
-        df_results = pd.DataFrame(results)
-        
-        # Select key metrics for comparison
-        comparison_cols = [
-            'pipeline_name', 'accuracy', 'f1_weighted', 'f1_macro',
-            'precision_weighted', 'recall_weighted',
-            'training_time', 'prediction_time'
-        ]
-        
-        return df_results[comparison_cols].round(4)
-    
-    def get_best_pipeline(self, metric: str = 'f1_weighted') -> Dict[str, Any]:
-        """Get the best performing pipeline based on a metric"""
-        if not self.results:
-            raise ValueError("No comparison results available. Run compare_pipelines first.")
-        
-        best_idx = np.argmax([result[metric] for result in self.results])
-        return self.results[best_idx]
-
-
-def create_preset_pipelines() -> List[TextClassificationPipeline]:
-    """
-    Create a set of preset pipeline configurations for comparison
-    
-    Returns:
-        List of configured pipelines
-    """
-    pipelines = []
-    
-    # TF-IDF + Logistic Regression (baseline)
-    pipelines.append(TextClassificationPipeline(
-        vectorizer_type="tfidf",
-        classifier_type="logistic_regression",
-        vectorizer_params={'max_features': 10000, 'ngram_range': (1, 2)},
-        classifier_params={'C': 1.0, 'max_iter': 1000}
-    ))
-    
-    # TF-IDF + SVM
-    pipelines.append(TextClassificationPipeline(
-        vectorizer_type="tfidf",
-        classifier_type="svm",
-        vectorizer_params={'max_features': 5000, 'ngram_range': (1, 2)},
-        classifier_params={'C': 1.0, 'kernel': 'linear'}
-    ))
-    
-    
-    # IndoBERT + Logistic Regression
-    pipelines.append(TextClassificationPipeline(
-        vectorizer_type="indobert",
-        classifier_type="logistic_regression",
-        vectorizer_params={'pooling_strategy': 'mean'},
-        classifier_params={'C': 1.0, 'max_iter': 1000}
-    ))
-    
-    # IndoBERT + SVM
-    pipelines.append(TextClassificationPipeline(
-        vectorizer_type="indobert",
-        classifier_type="svm",
-        vectorizer_params={'pooling_strategy': 'cls'},
-        classifier_params={'C': 1.0, 'kernel': 'rbf'}
-    ))
-    
-    return pipelines
