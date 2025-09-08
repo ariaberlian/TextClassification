@@ -573,7 +573,7 @@ with tab2:
                 label_mapping = {0: "Negative", 1: "Positive"}
                 
                 pred_label = label_mapping.get(prediction[0], f"Class {prediction[0]}")
-                confidence = max(probabilities)
+                confidence = float(max(probabilities))
                 
                 # Prediction Results Section
                 st.subheader("🎯 Prediction Results")
